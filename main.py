@@ -8,8 +8,8 @@ from terrain import Terrain
 from sky import SkyBox
 from math import *
 from shader import Shader, testShader
-width = 800
-height = 600
+width = 600
+height = 400
 glutInit()
 WIREFRAME=False
 '''
@@ -136,10 +136,10 @@ class Window(pyglet.window.Window):
         self.t.draw(5)
         glEndList()
         
-        with open("shader.vs") as vsf:
-            with  open("shader.fs") as fsf:
-                self.shader = Shader(vs=vsf.read(), fs=fsf.read())
-                self.shader.Use()
+        # with open("shader.vs") as vsf:
+        #     with  open("shader.fs") as fsf:
+        #         self.shader = Shader(vs=vsf.read(), fs=fsf.read())
+        #         self.shader.Use()
 
     def set_exclusive_mouse(self, exclusive):
         """ If `exclusive` is True, the game will capture the mouse, if False
@@ -233,7 +233,7 @@ class Window(pyglet.window.Window):
         self.water_line = 1.5
         self.water_color = (0.3,0.3,1,1)
         
-        self.shader.Use()
+        #self.shader.Use()
         self.set_3d()
         glTranslatef(-16, 0, -16)
         
@@ -244,7 +244,7 @@ class Window(pyglet.window.Window):
 
         #glCallList(self.dlists['terrain'])
         self.t.draw(self.position[1])
-        self.shader.Unuse()
+        #self.shader.Unuse()
 
         glPopMatrix() # set_3d camera transf
         self.set_2d()
@@ -296,9 +296,9 @@ class Window(pyglet.window.Window):
         x = lambda s : sin(radians(s))*6
         z = lambda s : cos(radians(s))*6
         
-        self.shader.uniform3fv("lightPos[0]", *[x(self.spin), 15, z(self.spin)])
-        self.shader.uniform3fv("lightPos[1]", *[x(self.spin+120), 15, z(self.spin+120)])
-        self.shader.uniform3fv("lightPos[2]", *[x(self.spin+240), 15, z(self.spin+240)])
+        #self.shader.uniform3fv("lightPos[0]", *[x(self.spin), 15, z(self.spin)])
+        #self.shader.uniform3fv("lightPos[1]", *[x(self.spin+120), 15, z(self.spin+120)])
+        #self.shader.uniform3fv("lightPos[2]", *[x(self.spin+240), 15, z(self.spin+240)])
         glTranslatef(0, 15, 0)
         glRotated(self.spin, 0.0, 1.0, 0.0);
         def vec(*args):

@@ -6,26 +6,9 @@ from pyglet.gl import *
 from OpenGL.GLUT import *
 import math
 from math import sqrt
-import pdb
-
+from shader import Shader
 width = 800
-height = 600
-glutInit()
-WIREFRAME=False
-'''
-TODOS:
-        - heights getter for floating objects, and non-floating
-        - compile meshes
-        - blending texture system if possible
-        - optimaize if is slow
-        - more files
-        - sky
-        - ship
-        - car
-        - person
-        - particle effects
-
-'''
+#height = 600
 
 # Define a simple function to create ctypes arrays of floats:
 def vec(*args):
@@ -43,18 +26,23 @@ def quad( x, y, color, size=50 ):
 
 class Terrain(object) :
     '''
-            Set up sizes a and b same number. Some 2^k + 1, like 17, 33, ... 
-            generate - set true if you want new terrain or false to load last.
+            a           - size of terrain 2^k + 1, like 17, 33, ...
+            generate    - set true if you want new terrain or false to load last.
+            water_line  - height of sea level  
     '''
-    def __init__(self, a=33, b=33, generate=True) :
+    def __init__(self, a=33, water_line=1.5, generate=True) :
         self.a = a
+        self.water_line = water_line
+        self.water_color = (0.3,0.3,1,1)
+
         if generate :
-            self.generateHeightMap(a, b)
+            self.generateHeightMap(a, a)
             self.saveHeightMap('hm_last')
         else:
             self.loadHeighMap('hm_last')
+        self.loadShader()
         self.loadTexture()
-        self.generateGrid(a-1,b-1)
+        self.generateGrid(a-1,a-1)
 
     def generateHeightMap( self, x, y ) :
         '''
@@ -121,7 +109,7 @@ class Terrain(object) :
         for i in xrange(0, img.width*img.height*4, img.width*4):
             for j in xrange(0, img.width*4, 4):
                 h = data[i+j] 
-                hm[ i /img.width/4][j/4] = toLoad( h )
+                hm[j/4][i /img.width/4] = toLoad( h )
 
         self.hm = hm
 
@@ -187,22 +175,44 @@ class Terrain(object) :
         self.recursion( sx, (ey+sy)/2, (ex+sx)/2, ey, depth+1 )
         self.recursion( (ex+sx)/2, (ey+sy)/2, ex, ey, depth+1 )
 
+    def loadShader(self):
+        self.shader = None
+        with open("shader.vs") as vsf:
+            with  open("shader.fs") as fsf:
+                self.shader = Shader(vs=vsf.read(), fs=fsf.read())
+                #self.shader.Use()
+
     def loadTexture( self ):
+        textureSurface = image.load('multicolor512.png')
+        self.text0 = textureSurface.get_mipmapped_texture()
+
         textureSurface = image.load('grass512.jpg')
-        self.texture=textureSurface.mipmapped_texture
+        self.text1 = textureSurface.get_mipmapped_texture()
+
+        textureSurface = image.load('stone512.jpg')
+        self.text2 = textureSurface.get_mipmapped_texture()
+
+        textureSurface = image.load('snow512.png')
+        self.text3 = textureSurface.get_mipmapped_texture()
+
+        textureSurface = image.load('water1024.jpg')
+        self.sea_tex = textureSurface.get_mipmapped_texture()
         
     def generateGrid( self, a, b ):
         coords = ()
         colors = ()
         txtr = ()
+        txtr2 = ()
         triglist = []
         normals = ()
+        s = 1./a
         
         for z in range(b):
             for x in range(a):
                 coords += (x, self.hm[z][x], z )
-                normals += self.computeNormal2( z, x)
+                normals += (0, 1, 0)#self.computeNormal2( z, x)
                 txtr += ( z % 2, x % 2 )
+                txtr2 += ( z*s + (z%2)*s, x*s + (x%2)*s)
 
                 if z == 0 or x == 0:
                     continue
@@ -212,10 +222,12 @@ class Terrain(object) :
                 triglist.extend( [ (z-1)*b+x, z*b+x-1, (z)*b+x ] )
 
         self.saveNormalMap( normals, "nm_last" )
-        self.vertex_list = pyglet.graphics.vertex_list_indexed( len(coords)/3,
+        self.vertex_list = pyglet.graphics.vertex_list_indexed( 
+            len(coords)/3,
             triglist,
             ('v3f', coords), 
-            ('t2f', txtr),
+            ('0t2f', txtr2),
+            ('1t2f', txtr),
             #('c3f', colors),
             ('n3f', normals) );
 
@@ -316,22 +328,150 @@ class Terrain(object) :
         glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.34, .34, .0, 1))
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.2, .2, .3, 1))
         glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(0.6, 0.6, 0.6, 1))
-        glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(0.5, 1, 1))
+        #glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(0.5, 1, 1))
         glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 45)
+        #glColor4f(0.1,0.6,.6,0.4)
+        glEnable(GL_TEXTURE_2D)
+        glActiveTexture(GL_TEXTURE0); 
+        glBindTexture(GL_TEXTURE_2D, self.text0.id); 
+        glActiveTexture(GL_TEXTURE1); 
+        glBindTexture(GL_TEXTURE_2D, self.text1.id);
+        glActiveTexture(GL_TEXTURE2); 
+        glBindTexture(GL_TEXTURE_2D, self.text2.id);
+        glActiveTexture(GL_TEXTURE3); 
+        glBindTexture(GL_TEXTURE_2D, self.text3.id);
+        self.shader.uniformi("blendTexture", 0) 
+        self.shader.uniformi("text1", 1)
+        self.shader.uniformi("text2", 2)
+        self.shader.uniformi("text3", 3)
 
-    def draw( self ) :
+    def drawHeightGrid( self ) :
+        self.shader.Use()
         self.setMaterial()
-        glBindTexture( GL_TEXTURE_2D, self.texture.id)
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST )
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR )
 
         self.vertex_list . draw( pyglet.gl.GL_TRIANGLES )
+        self.shader.Unuse()
+        glDisable(GL_TEXTURE_2D)
+        #for t in (GL_TEXTURE1, GL_TEXTURE2, GL_TEXTURE3):
+        #    glDisable(t)
+
+    def draw( self, cam_height ):
+        # Draw the terrain above water
+        if cam_height < self.water_line :
+            glFogfv(GL_FOG_COLOR, vec(*self.water_color))
+            glFogi(GL_FOG_MODE, GL_EXP)
+            glFogf(GL_FOG_DENSITY, 0.02)
+            glFogf(GL_FOG_START, 0)
+            #glFogf(GL_FOG_END, width * 4 / 5)
+            glEnable(GL_FOG)
+        glPushAttrib(GL_STENCIL_BUFFER_BIT | GL_TRANSFORM_BIT | GL_CURRENT_BIT)
+        glColor3f(.3, .59, .11)
+        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, 1, 0, -self.water_line))
+        glEnable(GL_CLIP_PLANE0)
+        self.drawHeightGrid()
+        glDisable(GL_FOG)
+        
+        # Draw the reflection and create a stencil mask
+        glPushAttrib(GL_FOG_BIT)
+        glPushAttrib(GL_LIGHTING_BIT)
+        glEnable(GL_STENCIL_TEST)
+        glStencilFunc(GL_ALWAYS, 1, 1)
+        glStencilOp(GL_KEEP, GL_INCR, GL_INCR)
+        # Use fog to make the reflection less perfect
+        glFogfv(GL_FOG_COLOR, (ctypes.c_float * 4)(*self.water_color))
+        glFogi(GL_FOG_MODE, GL_EXP)
+        glFogf(GL_FOG_DENSITY, 0.02)
+        glFogf(GL_FOG_START, 0)
+        #glFogf(GL_FOG_END, width * 4 / 5)
+        glEnable(GL_FOG)
+        glPushMatrix()
+        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
+        glLightfv(GL_LIGHT0, GL_POSITION, vec(0, -100, 0, 0))
+        glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, 1, 0, 0))
+        glTranslatef(0, self.water_line * 2, 0)
+        glScalef(1, -1, 1)
+        glColor3f(.3, .59, .71)
+        #glColor4f(0.26, 0.32, .6, 1)
+        
+        #  
+        glFrontFace(GL_CW) 
+        if cam_height > self.water_line :
+            self.drawHeightGrid()
+        glFrontFace(GL_CCW)
+        glPopMatrix()
+        glPopAttrib()
+
+        # Draw underwater terrain, except where masked by reflection
+        # Use dense fog for underwater effect
+        glFogi(GL_FOG_MODE, GL_EXP)
+        glFogf(GL_FOG_DENSITY, 0.4)
+        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP)
+        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
+        glStencilFunc(GL_EQUAL, 0, -1)
+        self.drawHeightGrid()
+        glDisable(GL_CLIP_PLANE0)
+        glPopAttrib()
+        self.drawSeaLevel()
+        glPopAttrib()
+
+    def setSeaMaterial(sefl) :
+        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.34, .34, .0, 1))
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.3, .3, .2, 1))
+        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(0.6, 0.6, 0.6, 1))
+        #glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(1.0, 1, 1))
+        glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 105)
+
+    def drawSeaLevel( self ) :
+        self.setSeaMaterial()
+        glEnable(GL_BLEND);
+        glDisable(GL_CULL_FACE)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glActiveTexture( GL_TEXTURE0 )
+        glBindTexture( GL_TEXTURE_2D, self.sea_tex.id)
+
+        
+        glBegin(GL_TRIANGLES)    
+        glColor4f(0.1,0.6,.6,0.8)
+
+        #glColor4f(.1,.3,0.6, 0.9)
+        #glColor4f(.0,.0,0.0, 0.4)
+        a = self.a
+        y = self.water_line
+        s = 2
+        for z in xrange( 0, a, s ) : 
+            for x in xrange( 0, a, s ) :
+
+                glNormal3f(0,1,0)
+                glTexCoord2i(1,1)
+                glVertex3f(x + s, y, z + s) 
+                glNormal3f(0,1,0)
+                glTexCoord2i(0,0)
+                glVertex3f(x + 0, y, z + 0)
+                glNormal3f(0,1,0)
+                glTexCoord2i(0,1)
+                glVertex3f(x + 0, y, z + s) 
+
+                glNormal3f(0,1,0)
+                glTexCoord2i(0,0)
+                glVertex3f(x + 0, y, z + 0)  
+                glNormal3f(0,1,0)
+                glTexCoord2i(1,1)
+                glVertex3f(x + s, y, z + s)
+                glNormal3f(0,1,0)
+                glTexCoord2i(1,0)
+                glVertex3f(x + s, y, z + 0)    
+
+        glEnd()
+        glDisable(GL_BLEND);
+        glEnable(GL_CULL_FACE)
+        
 
     def height( self, x, z ):
         from math import floor, ceil
         a = self.a
-        #x, z = x + a/2, z + a/2
-        print x, z
+        
         if x < 0 or x >= a-1 or z < 0 or z >= a-1 :
             return 10
         
@@ -361,554 +501,9 @@ class Terrain(object) :
         htmp = h3 + (h2-h3)*(dx*l)
         height = h1 + (htmp-h1)/l
         return height
-        
 
-class Window(pyglet.window.Window):
-
-
-    def __init__(self, *args, **kwargs):
-        super(Window, self).__init__(*args, **kwargs)
-        pyglet.clock.schedule_interval(self.update, 1./60)
-        self.strafe = [0, 0]
-
-        # Current (x, y, z) position in the world, specified with floats. Note
-        # that, perhaps unlike in math class, the y-axis is the vertical axis.
-        self.position = (12, 20, 12)
-        self.cubPos = [12, 0, 12]
-
-        # First element is rotation of the player in the x-z plane (ground
-        # plane) measured from the z-axis down. The second is the rotation
-        # angle from the ground plane up. Rotation is in degrees.
-        #
-        # The vertical plane rotation ranges from -90 (looking straight down) to
-        # 90 (looking straight up). The horizontal rotation range is unbounded.
-        self.rotation = (0, 0)
-        self.reticle = None
-        
-        self.t = Terrain(33,33,generate=False)
-        self.spin = 180
-        self.fps = pyglet.clock.ClockDisplay()
-        
-        textureSurface = image.load('water1024.jpg')
-        self.sea_tex = textureSurface.get_mipmapped_texture()
-
-        self.color_coef = 1.0
-
-    def set_exclusive_mouse(self, exclusive):
-        """ If `exclusive` is True, the game will capture the mouse, if False
-        the game will ignore the mouse.
-
-        """
-        super(Window, self).set_exclusive_mouse(exclusive)
-        self.exclusive = exclusive
-
-    def _update(self, dt):
-        """ Private implementation of the `update()` method. This is where most
-        of the motion logic lives, along with gravity and collision detection.
-
-        Parameters
-        ----------
-        dt : float
-            The change in time since the last call.
-
-        """
-        # walking
-        speed = 5
-        d = dt * speed # distance covered this tick.
-        dx, dy, dz = self.get_motion_vector()
-        # New position in space, before accounting for gravity.
-        dx, dy, dz = dx * d, dy * d, dz * d
-        # collisions
-        x, y, z = self.position
-        self.position = (x + dx, y + dy, z + dz)
-
-    def update( self, dt ):
-        self._update(dt)
-
-    def get_motion_vector(self):
-        """ Returns the current motion vector indicating the velocity of the
-        player.
-
-        Returns
-        -------
-        vector : tuple of len 3
-            Tuple containing the velocity in x, y, and z respectively.
-
-        """
-        if any(self.strafe):
-            x, y = self.rotation
-            strafe = math.degrees(math.atan2(*self.strafe))
-            y_angle = math.radians(y)
-            x_angle = math.radians(x + strafe)
-            m = math.cos(y_angle)
-            dy = math.sin(y_angle)
-            if self.strafe[1]:
-                # Moving left or right.
-                dy = 0.0
-                m = 1
-            if self.strafe[0] > 0:
-                # Moving backwards.
-                dy *= -1
-            # When you are flying up or down, you have less left and right
-            # motion.
-            dx = math.cos(x_angle) * m
-            dz = math.sin(x_angle) * m
-            # else:
-            #     dy = 0.0
-            #     dx = math.cos(x_angle)
-            #     dz = math.sin(x_angle)
-        else:
-            dy = 0.0
-            dx = 0.0
-            dz = 0.0
-        return (dx, dy, dz)
-
-    def on_resize(self, width, height):
-        """ Called when the window is resized to a new `width` and `height`.
-
-        """
-        # label
-        #self.label.y = height - 10
-        # reticle
-        if self.reticle:
-            self.reticle.delete()
-        x, y = self.width / 2, self.height / 2
-        n = 10
-        self.reticle = pyglet.graphics.vertex_list(4,
-            ('v2i', (x - n, y, x + n, y, x, y - n, x, y + n))
-        )
-
-    def on_drawx( self ):
-        self.clear()
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        self.set_3d()
-        #if not WIREFRAME : self.drawChessDesk()
-        glColor3f(.15, .295, .055)
-        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, 1, 0, -1.5))
-        glEnable(GL_CLIP_PLANE0)
-        self.t.draw()
-
-        glPushMatrix()
-        glScalef(1, -1, 1)
-        glTranslatef(0,-3.,0)
-        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, 1, 0, -1.5))
-        glEnable(GL_CLIP_PLANE0)
-        glColor4f(0.4, 0.4, 0.4, 1)
-        self.t.draw()
-        glPopMatrix()
-        glDisable(GL_CLIP_PLANE0)
-        if not WIREFRAME : self.drawSeaLevel()
-        
-
-        self.set_2d()
-        glPopMatrix()
-        
-        glColor3d(0, 0, 0)
-        #quad( 20, 20, (0,0,0) ) . draw( pyglet.gl.GL_TRIANGLES );
-        self.fps.draw()
-        pass
-
-    def on_draw(self):
-        glFogf(GL_FOG_START, width * 2 / 3)
-        glFogf(GL_FOG_END, width)
-        self.clear()
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)  
-        self.water_line = 1.5
-        self.water_color = (0.3,0.3,1,1)
-        
-        #glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        self.set_3d()
-        
-        # kostka
-        self.kostka_draw()
-
-        if self.position[1] < self.water_line :
-            #glEnable(GL_STENCIL_TEST)
-            #glStencilFunc(GL_ALWAYS, 1, 1)
-            #glStencilOp(GL_KEEP, GL_INCR, GL_INCR)
-            glFogfv(GL_FOG_COLOR, (ctypes.c_float * 4)(*self.water_color))
-            glFogi(GL_FOG_MODE, GL_EXP)
-            glFogf(GL_FOG_DENSITY, 0.02)
-            glFogf(GL_FOG_START, 0)
-            glFogf(GL_FOG_END, width * 4 / 5)
-            glEnable(GL_FOG)
-        glPushAttrib(GL_STENCIL_BUFFER_BIT | GL_TRANSFORM_BIT | GL_CURRENT_BIT)
-        # Draw the terrain above water
-        glColor3f(.3, .59, .11)
-        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, 1, 0, -self.water_line))
-        glEnable(GL_CLIP_PLANE0)
-        self.t.draw()
-        glDisable(GL_FOG)
-        
-        # Draw the reflection and create a stencil mask
-        glPushAttrib(GL_FOG_BIT)
-        glPushAttrib(GL_LIGHTING_BIT)
-        glEnable(GL_STENCIL_TEST)
-        glStencilFunc(GL_ALWAYS, 1, 1)
-        glStencilOp(GL_KEEP, GL_INCR, GL_INCR)
-        # Use fog to make the reflection less perfect
-        glFogfv(GL_FOG_COLOR, (ctypes.c_float * 4)(*self.water_color))
-        glFogi(GL_FOG_MODE, GL_EXP)
-        glFogf(GL_FOG_DENSITY, 0.02)
-        glFogf(GL_FOG_START, 0)
-        glFogf(GL_FOG_END, width * 4 / 5)
-        glEnable(GL_FOG)
-        glPushMatrix()
-        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
-        glLightfv(GL_LIGHT0, GL_POSITION, vec(0, -100, 0, 0))
-        glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, 1, 0, 0))
-        glTranslatef(0, self.water_line * 2, 0)
-        glScalef(1, -1, 1)
-        glColor3f(1, 1, 1)
-        c=self.color_coef
-        glColor3f(.3*c, .59*c, .71*c)
-        #glColor4f(0.26, 0.32, .6, 1)
-        glFrontFace(GL_CW) # This assumes default front face is wound CCW
-        if self.position[1] > self.water_line :
-            self.t.draw()
-        glFrontFace(GL_CCW)
-        glPopMatrix()
-        glPopAttrib()
-
-        # Draw underwater terrain, except where masked by reflection
-        # Use dense fog for underwater effect
-        glFogi(GL_FOG_MODE, GL_EXP)
-        glFogf(GL_FOG_DENSITY, 0.4)
-        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP)
-        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
-        glStencilFunc(GL_EQUAL, 0, -1)
-        self.t.draw()
-        glPopAttrib()
-
-        glDisable(GL_CLIP_PLANE0)
-        
-        if not WIREFRAME : self.drawSeaLevel()
-
-        glPopAttrib()
-        glPopMatrix()
-
-        self.set_2d()
-        glColor3d(0, 0, 0)
-        self.fps.draw()
-
-    def kostka_draw(self):
-        glDisable(GL_CLIP_PLANE0)
-        glColor3f(0,0,1)
-        x, y, z = self.cubPos
-        y = self.t.height(x, z)
-        from math import floor
-        xf = int( floor(x) )
-        zf = int( floor(z) )
-        
-        sizes = (GLfloat*10)()
-        step = (GLfloat*1)()
-        glGetFloatv(GL_POINT_SIZE_RANGE,sizes);
-        glGetFloatv(GL_POINT_SIZE_GRANULARITY, step);
-        curSize = sizes[0] + 5*step[0]
-        glPointSize(curSize);
-    
-        glBegin(GL_POINTS)
-        # (x, self.hm[z][x], z )
-        glVertex3f(xf  , self.t.hm[zf  ][xf  ], zf  )
-        glVertex3f(xf+1, self.t.hm[zf  ][xf+1], zf  )
-        glVertex3f(xf  , self.t.hm[zf+1][xf  ], zf+1)
-        glVertex3f(xf+1, self.t.hm[zf+1][xf+1], zf+1)
-        glColor3f(1,0,0)
-
-        glEnd()
-        glTranslatef(x, y, z)
-        glutSolidCube(0.1)
-        glTranslatef(-x, -y, -z)
-
-    def set_2d(self):
-        """ Configure OpenGL to draw in 2d.
-
-        """
-        width, height = self.get_size()
-        glDisable(GL_DEPTH_TEST)
-        glDisable(GL_LIGHTING)
-        glViewport(0, 0, width, height)
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        glOrtho(0, width, 0, height, -1, 1)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
-
-    def set_3d(self):
-        """ Configure OpenGL to draw in 3d.
-
-        """
-        width, height = self.get_size()
-        glEnable(GL_DEPTH_TEST)
-        glViewport(0, 0, width, height)
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        gluPerspective(65.0, width / float(height), 0.1, 500.0)
-        # gluPerspective(65, width / float(height), 15, 0)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
-        rx, ry = self.rotation
-        glPushMatrix()
-        glRotatef(rx, 0, 1, 0)
-        glRotatef(-ry, math.cos(math.radians(rx)), 0, math.sin(math.radians(rx)))
-        x, y, z = self.position
-        #y = self.t.height(x, z)
-        #self.position = x, y, z
-        glTranslatef(-x, -y, -z)
-
-        self.spin += 1
-        self.spin %= 360
-        glPushMatrix();
-        glTranslatef(0, 20, 0)
-        glRotated(self.spin, 0.0, 1.0, 0.0);
-        def vec(*args):
-            return (GLfloat * len(args))(*args)
-
-        glTranslated (0.0, 0.0, 6.0);
-        glLightfv(GL_LIGHT0, GL_POSITION, vec(0, 0, 0, 1))
-        glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, -1, 0))
-        glDisable (GL_LIGHTING);
-        glColor3f (0.0, 1.0, 1.0);
-        glutWireCube (2.0);
-        glEnable (GL_LIGHTING);
-        glPopMatrix()
-   
-    def drawChessDesk( self ) :
-        glBegin(GL_TRIANGLES)    
-
-        for z in xrange( -30, 30, 1 ) : 
-            for x in xrange( -30, 30, 2 ) :
-                if z % 2 == 0 :
-                    glColor3f(0, 0.5, 0)
-                else :
-                    glColor3f(.1,.1, .1)
-
-                glNormal3f(0,1,0)
-                glVertex3f(x + 1, -5, 1 + z) 
-                glVertex3f(x +  0, -5,  0 + z)
-                glVertex3f(x +  0, -5, 1 + z) 
-
-                glNormal3f(0,1,0)
-                glVertex3f(x +  0, -5,  0 + z)  
-                glVertex3f(x + 1, -5, 1 + z)
-                glVertex3f(x + 1, -5,  0 + z) 
-
-                if z % 2 != 0:
-                    glColor3f(0, 0.5, 0)
-                else :
-                    glColor3f(.1,.1, .1)
-
-                glNormal3f(0,1,0)
-                glVertex3f(x + 2, -5, 1 + z) 
-                glVertex3f(x + 1, -5,  0 + z)
-                glVertex3f(x + 1, -5, 1 + z) 
-
-                glNormal3f(0,1,0)
-                glVertex3f(x + 1, -5,  0 + z)  
-                glVertex3f(x + 2, -5, 1 + z)
-                glVertex3f(x + 2, -5,  0 + z)    
-
-        glEnd()
-
-    def setSeaMaterial(sefl) :
-        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.34, .34, .0, 1))
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.3, .3, .2, 1))
-        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(0.6, 0.6, 0.6, 1))
-        #glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(1.0, 1, 1))
-        glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 105)
-
-    def drawSeaLevel( self ) :
-        self.setSeaMaterial()
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glBindTexture( GL_TEXTURE_2D, self.sea_tex.id)
-        
-        glBegin(GL_TRIANGLES)    
-        glColor4f(0.1,0.6,.6,0.4)
-        #glColor4f(.1,.3,0.6, 0.9)
-        #glColor4f(.0,.0,0.0, 0.4)
-        a = 10
-        for z in xrange( -30, 30, a ) : 
-            for x in xrange( -30, 30, a ) :
-
-                glNormal3f(0,1,0)
-                glTexCoord2i(1,1)
-                glVertex3f(x + a, 1.5, z + a) 
-                glNormal3f(0,1,0)
-                glTexCoord2i(0,0)
-                glVertex3f(x + 0, 1.5, z + 0)
-                glNormal3f(0,1,0)
-                glTexCoord2i(0,1)
-                glVertex3f(x + 0, 1.5, z + a) 
-
-                glNormal3f(0,1,0)
-                glTexCoord2i(0,0)
-                glVertex3f(x + 0, 1.5, z + 0)  
-                glNormal3f(0,1,0)
-                glTexCoord2i(1,1)
-                glVertex3f(x + a, 1.5, z + a)
-                glNormal3f(0,1,0)
-                glTexCoord2i(1,0)
-                glVertex3f(x + a, 1.5, z + 0)    
-
-        glEnd()
-        glDisable(GL_BLEND);
-
-    def on_mouse_press(self, x, y, button, modifiers):
-        """ Called when a mouse button is pressed. See pyglet docs for button
-        amd modifier mappings.
-
-        Parameters
-        ----------
-        x, y : int
-            The coordinates of the mouse click. Always center of the screen if
-            the mouse is captured.
-        button : int
-            Number representing mouse button that was clicked. 1 = left button,
-            4 = right button.
-        modifiers : int
-            Number representing any modifying keys that were pressed when the
-            mouse button was clicked.
-
-        """
-        if self.exclusive:
-            pass
-        else:
-            self.set_exclusive_mouse(True)
-
-    def on_mouse_motion(self, x, y, dx, dy):
-        """ Called when the player moves the mouse.
-
-        Parameters
-        ----------
-        x, y : int
-            The coordinates of the mouse click. Always center of the screen if
-            the mouse is captured.
-        dx, dy : float
-            The movement of the mouse.
-
-        """
-        if self.exclusive:
-            m = 0.15
-            x, y = self.rotation
-            x, y = x + dx * m, y + dy * m
-            y = max(-90, min(90, y))
-            self.rotation = (x, y)
-    #@window.event
-    def vec(*args):
-        return (GLfloat * len(args))(*args)
-    def on_key_press( self, symbol, modifier ):
-        global piece, bottom
-
-        if symbol == key.A:
-            self.strafe[1] -= 1
-            print( "LEFT" )
-        elif symbol == key.W:
-            self.strafe[0] -= 1
-            print( "UP" )
-        elif symbol == key.S:
-            self.strafe[0] += 1
-            print( "DOWN" )
-        elif symbol == key.D:
-            self.strafe[1] += 1
-            print( "RIGHT" )
-
-        elif symbol == key.UP :
-            self.cubPos[0] += .1
-        elif symbol == key.DOWN :
-            self.cubPos[0] -= .1 
-        elif symbol == key.LEFT :
-            self.cubPos[2] += .1
-        elif symbol == key.RIGHT :
-            self.cubPos[2] -= .1
-
-        elif symbol == key.F :
-            global WIREFRAME
-            WIREFRAME = not WIREFRAME
-            if WIREFRAME :
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-            else :
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-        elif symbol == key.N :
-            self.t = Terrain(33,33)
-        elif symbol == key.Q :
-            exit(0)
-        elif symbol == key.ESCAPE:
-            self.set_exclusive_mouse(False)
-        elif symbol == key.O :
-            self.color_coef += 0.1
-        elif symbol == key.P :
-            self.color_coef -= .1
-
-    def on_key_release(self, symbol, modifiers):
-        """ Called when the player releases a key. See pyglet docs for key
-        mappings.
-
-        Parameters
-        ----------
-        symbol : int
-            Number representing the key that was pressed.
-        modifiers : int
-            Number representing any modifying keys that were pressed.
-
-        """
-        if symbol == key.W:
-            self.strafe[0] += 1
-        elif symbol == key.S:
-            self.strafe[0] -= 1
-        elif symbol == key.A:
-            self.strafe[1] += 1
-        elif symbol == key.D:
-            self.strafe[1] -= 1
-
-def setup():
-    """ Basic OpenGL configuration.
-
-    """
-    # Set the color of "clear", i.e. the sky, in rgba.
-    glClearColor(0.5, 0.69, 1.0, 1)
-    glClearColor(0.26, 0.32, .6, 1)
-    # Enable culling (not rendering) of back-facing facets -- facets that aren't
-    # visible to you.
-    glEnable(GL_CULL_FACE)
-    glEnable(GL_DEPTH_TEST)
-    glEnable(GL_TEXTURE_2D)
-    glShadeModel(GL_SMOOTH)
-    glEnable(GL_LIGHTING)
-    glEnable(GL_LIGHT0)
-    #glEnable(GL_LIGHT1)
-
-    #glLightfv(GL_LIGHT0, GL_POSITION, vec(0, 0, 0, 0))
-    #glLightfv(GL_LIGHT0, GL_SPECULAR, vec(1, 1, 1, 0))
-    #glLightfv(GL_LIGHT0, GL_DIFFUSE, vec(1, 1, 1, 0))
-    pos0 = vec(0.0,0.0,0.0,1.0)
-    diffuse0 = vec(1.0,1.0,1.0,1.0)
-    ambient0 = vec(1.0,1.0,1.0,1.0)
-    specular0 = vec(1.0,1.0,1.0,1.0)
-    glLightf(GL_LIGHT0, GL_SPOT_CUTOFF, 75)
-    glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION, 0.00300);
-    glLightfv(GL_LIGHT0, GL_POSITION, pos0)
-
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse0)
-    glLightfv(GL_LIGHT0, GL_AMBIENT, ambient0)
-    glLightfv(GL_LIGHT0, GL_SPECULAR, specular0)
-
-    glEnable(GL_COLOR_MATERIAL);
-    glEnable(GL_NORMALIZE)
-
-def main():
-    window = Window(width=width, height=height, caption='Pyglet', resizable=True)
-    platform = pyglet.window.get_platform()
-    display = platform.get_default_display()
-
-    locx = (display.get_screens()[0].width-width)/2
-    locy = (display.get_screens()[0].height-height)/2
-    window.set_location( locx, locy )
-
-    # Hide the mouse cursor and prevent the mouse from leaving the window.
-    window.set_exclusive_mouse(True)
-    setup()
-    pyglet.app.run()
-
-if __name__ == '__main__':
-    main()
+    def Height( self, x, z, floating=False ):
+        h = self.height(x, z)
+        if not floating : return h
+        if h < self.water_line: return self.water_line
+        return h
