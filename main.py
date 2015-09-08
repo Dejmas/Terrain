@@ -5,11 +5,11 @@ from pyglet import image
 from pyglet.gl import *
 from OpenGL.GLUT import *
 from terrain import Terrain
-from sky import SkyBox
+#from sky import SkyBox
 from math import *
 from shader import Shader, testShader
-width = 600
-height = 400
+width = 800
+height = 600
 glutInit()
 WIREFRAME=False
 '''
@@ -128,7 +128,7 @@ class Window(pyglet.window.Window):
         self.spin = 180
         self.fps = pyglet.clock.ClockDisplay()
         #self.skybox = SkyBox.fromDir("../example/texture/bluesky", "bluesky")
-        self.skybox = SkyBox.fromDir("../example/texture/lake2", "jajlake2")
+        #self.skybox = SkyBox.fromDir("../example/texture/lake2", "jajlake2")
         self.kostka = Kostka(self.t) 
         self.dlists = {}
         self.dlists['terrain'] = glGenLists(1)

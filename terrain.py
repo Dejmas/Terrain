@@ -183,19 +183,19 @@ class Terrain(object) :
                 #self.shader.Use()
 
     def loadTexture( self ):
-        textureSurface = image.load('multicolor512.png')
+        textureSurface = image.load('data/multicolor512.png')
         self.text0 = textureSurface.get_mipmapped_texture()
 
-        textureSurface = image.load('grass512.jpg')
+        textureSurface = image.load('data/grass512.jpg')
         self.text1 = textureSurface.get_mipmapped_texture()
 
-        textureSurface = image.load('stone512.jpg')
+        textureSurface = image.load('data/sand512.png')
         self.text2 = textureSurface.get_mipmapped_texture()
 
-        textureSurface = image.load('snow512.png')
+        textureSurface = image.load('data/stone512.jpg')
         self.text3 = textureSurface.get_mipmapped_texture()
 
-        textureSurface = image.load('water1024.jpg')
+        textureSurface = image.load('data/water1024.jpg')
         self.sea_tex = textureSurface.get_mipmapped_texture()
         
     def generateGrid( self, a, b ):
