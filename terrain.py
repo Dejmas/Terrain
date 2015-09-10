@@ -9,10 +9,10 @@ from math import sqrt
 from shader import Shader
 width = 800
 #height = 600
-
+SHADER = True
 # Define a simple function to create ctypes arrays of floats:
 def vec(*args):
-        return (GLfloat * len(args))(*args)
+    return (GLfloat * len(args))(*args)
 
 def quad( x, y, color, size=50 ):
     coords = ( x, y, x + size, y, x + size, y + size, x, y + size );
@@ -26,21 +26,22 @@ def quad( x, y, color, size=50 ):
 
 class Terrain(object) :
     '''
-            a           - size of terrain 2^k + 1, like 17, 33, ...
-            generate    - set true if you want new terrain or false to load last.
-            water_line  - height of sea level  
-    '''
+        a           - size of terrain 2^k + 1, like 17, 33, ...
+        generate    - set true if you want new terrain or false to load last.
+        water_line  - height of sea level  
+        '''
     def __init__(self, a=33, water_line=1.5, generate=True) :
         self.a = a
         self.water_line = water_line
-        self.water_color = (0.3,0.3,1,1)
-
+        self.water_color = (.1,.3,0.6,1)
+        self.lightPos = (0, 0, 0)
+        self.lightRotation = 0
         if generate :
             self.generateHeightMap(a, a)
             self.saveHeightMap('hm_last')
         else:
             self.loadHeighMap('hm_last')
-        self.loadShader()
+        if SHADER: self.loadShader()
         self.loadTexture()
         self.generateGrid(a-1,a-1)
 
@@ -177,10 +178,9 @@ class Terrain(object) :
 
     def loadShader(self):
         self.shader = None
-        with open("shader.vs") as vsf:
-            with  open("shader.fs") as fsf:
+        with open("shaders/heightGrid.vs") as vsf:
+            with  open("shaders/heightGrid.fs") as fsf:
                 self.shader = Shader(vs=vsf.read(), fs=fsf.read())
-                #self.shader.Use()
 
     def loadTexture( self ):
         textureSurface = image.load('data/multicolor512.png')
@@ -200,7 +200,6 @@ class Terrain(object) :
         
     def generateGrid( self, a, b ):
         coords = ()
-        colors = ()
         txtr = ()
         txtr2 = ()
         triglist = []
@@ -210,9 +209,9 @@ class Terrain(object) :
         for z in range(b):
             for x in range(a):
                 coords += (x, self.hm[z][x], z )
-                normals += (0, 1, 0)#self.computeNormal2( z, x)
+                normals += self.computeNormal( z, x)
                 txtr += ( z % 2, x % 2 )
-                txtr2 += ( z*s + (z%2)*s, x*s + (x%2)*s)
+                txtr2 += ( z*s , x*s )
 
                 if z == 0 or x == 0:
                     continue
@@ -233,31 +232,35 @@ class Terrain(object) :
 
     def computeNormal( self, x, z ):
         '''
-                    v = normalised(sum(v12, v23, v34, v41))     
+                  v3
+                  ^
+                  |      
+          v0 < -- p0 -- > v2
+                  |      
+                  V
+                  v2 
+            find vetors to adjecent vertexes
+            n = normalised(sum(v12, v23, v34, v41))     
                 where
-                    vij = normalised(vi x vj) // normalised cross product
-            Here are 9 special cases to solve, 
-            I -- II -- III
-            |     |     |
-            IV -- V -- VI
-            |     |     |
-            VII - VIII - IX 
-
-            I will make universal algorithm
+                    vij = normalised(vi x vj) # normalised cross product 
         '''
         a = self.a-1
-        print "computeNormal: xz {} {}, a = {}".format( x, z, a)
-        p0 = [-a/2 + x, self.hm[x][z], -a/2 + z ]
-        vectors = []
+        # (x, self.hm[z][x], z )
+        p0 = [ x, self.hm[z][x], z ]
         cross_vecs = []
+        v0 = [-1, 0, 0 ]
         if x > 0 :
-            vectors.append( [-a/2+x-1 - p0[0], self.hm[x-1][z]-p0[1], 0] )
-        if x < a-1 :
-            vectors.append( [-a/2+x+1 - p0[0], self.hm[x+1][z]-p0[1], 0] )
+            v0[1] =  -p0[1]+self.hm[z][x-1]
+        v1 = [0, 0, -1 ]
         if z > 0 :
-            vectors.append( [0, self.hm[x][z-1]-p0[1], -a/2 + z-1 -p0[2]] )
+            v1[1] = -p0[1]+self.hm[z-1][x]
+        v2 = [1, 0, 0 ]
+        if x < a-1 :
+            v2[1] = -p0[1]+self.hm[z][x+1]
+        v3 = [0, 0, 1 ]
         if z < a-1 :
-            vectors.append( [0, self.hm[x+1][z]-p0[1], -a/2 + z+1 -p0[2]] )
+            v3[1] = -p0[1]+self.hm[z][x+1]
+
 
         def cross(a, b):
             c = [a[1]*b[2] - a[2]*b[1],
@@ -268,14 +271,13 @@ class Terrain(object) :
             from math import sqrt
             x, y, z = vec
             l = sqrt( x*x + y*y + z*z )
+            if not l : return (0, 0, 0)
             return (x/l, y/l, z/l)
 
-        cross_vecs.append( cross( vectors[0], vectors[1] ) )
-        if len( vectors ) >= 3 :
-            cross_vecs.append( cross( vectors[1], vectors[2] ) )
-
-        if len( vectors ) == 4 :
-            cross_vecs.append( cross( vectors[2], vectors[3] ) )
+        cross_vecs.append( cross( v1, v0 ) )
+        cross_vecs.append( cross( v2, v1 ) )
+        cross_vecs.append( cross( v3, v2 ) )
+        cross_vecs.append( cross( v0, v3 ) )
 
         for i in range( len(cross_vecs) ) :
             cross_vecs[i] = normalised(cross_vecs[i])
@@ -287,50 +289,17 @@ class Terrain(object) :
 
         return normalised( n )
 
-    def computeNormal2( self, x, z ):
-        '''
-            // # x y store the position for which we want to calculate the normals
-            // # height() here is a function that return the height at a point in the terrain
-
-            // read neightbor heights using an arbitrary small offset
-            vec3 off = vec3(1.0, 1.0, 0.0);
-            float hL = height(P.xy - off.xz);
-            float hR = height(P.xy + off.xz);
-            float hD = height(P.xy - off.zy);
-            float hU = height(P.xy + off.zy);
-
-            // deduce terrain normal
-            N.x = hL - hR;
-            N.y = hD - hU;
-            N.z = 2.0;
-            N = normalize(N);
-        '''
-        a = self.a-1
-        
-        def cross(a, b):
-            c = [a[1]*b[2] - a[2]*b[1],
-                 a[2]*b[0] - a[0]*b[2],
-                 a[0]*b[1] - a[1]*b[0]]
-            return c
-        def normalised( vec ):
-            from math import sqrt
-            x, y, z = vec
-            l = sqrt( x*x + y*y + z*z )
-            return (x/l, y/l, z/l)
-        hl = self.height(x-1, z)
-        hr = self.height(x+1, z)
-        hd = self.height(x, z-1)
-        hu = self.height(x, z+1)
-        n = [ hl-hr, hd-hu, 2.0 ]
-        return normalised( n )
-
     def setMaterial(self):
-        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.34, .34, .0, 1))
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.2, .2, .3, 1))
+        glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+        glShadeModel(GL_SMOOTH);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.34, .34, .34, 1))
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.3, .3, .3, 1))
         glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(0.6, 0.6, 0.6, 1))
-        #glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(0.5, 1, 1))
+        glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(0.5, 1, 1))
         glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 45)
-        #glColor4f(0.1,0.6,.6,0.4)
+        glColor4f(0.1,0.6,.6,0.4)
         glEnable(GL_TEXTURE_2D)
         glActiveTexture(GL_TEXTURE0); 
         glBindTexture(GL_TEXTURE_2D, self.text0.id); 
@@ -340,29 +309,46 @@ class Terrain(object) :
         glBindTexture(GL_TEXTURE_2D, self.text2.id);
         glActiveTexture(GL_TEXTURE3); 
         glBindTexture(GL_TEXTURE_2D, self.text3.id);
-        self.shader.uniformi("blendTexture", 0) 
-        self.shader.uniformi("text1", 1)
-        self.shader.uniformi("text2", 2)
-        self.shader.uniformi("text3", 3)
+    
+        def m3dTransformVector3(vOut3f, v3f, m33f):
+            vOut3f[0] = m33f[0] * v3f[0] + m33f[4] * v3f[1] + m33f[8] *  v3f[2] + m33f[12]
+            vOut3f[1] = m33f[1] * v3f[0] + m33f[5] * v3f[1] + m33f[9] *  v3f[2] + m33f[13]
+            vOut3f[2] = m33f[2] * v3f[0] + m33f[6] * v3f[1] + m33f[10] * v3f[2] + m33f[14]
+
+        lightPos0Eye = [0,0,0,0]
+        mv = (GLfloat * 16)()
+        glPushMatrix();
+        self.lightRotation = (self.lightRotation + 0.3) % 360;
+        glRotatef(self.lightRotation, 0.0, 0.0, 1.0);
+        glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+        m3dTransformVector3(lightPos0Eye, vec(50, 100, 50), mv);
+        glPopMatrix();
+
+        if SHADER:
+            self.shader.uniformi("blendTexture", 0) 
+            self.shader.uniformi("text1", 1)
+            self.shader.uniformi("text2", 2)
+            self.shader.uniformi("text3", 3)
+            #self.shader.uniformf("lightPos[0]", *lightPos0Eye[:3])
+            #self.shader.uniformf("density", 1 )
 
     def drawHeightGrid( self ) :
-        self.shader.Use()
+        if SHADER: self.shader.Use()
         self.setMaterial()
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST )
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR )
 
         self.vertex_list . draw( pyglet.gl.GL_TRIANGLES )
-        self.shader.Unuse()
+        if SHADER: self.shader.Unuse()
         glDisable(GL_TEXTURE_2D)
-        #for t in (GL_TEXTURE1, GL_TEXTURE2, GL_TEXTURE3):
-        #    glDisable(t)
 
     def draw( self, cam_height ):
+        glFogf(GL_FOG_DENSITY, 0)
         # Draw the terrain above water
         if cam_height < self.water_line :
             glFogfv(GL_FOG_COLOR, vec(*self.water_color))
             glFogi(GL_FOG_MODE, GL_EXP)
-            glFogf(GL_FOG_DENSITY, 0.02)
+            glFogf(GL_FOG_DENSITY, .1)
             glFogf(GL_FOG_START, 0)
             #glFogf(GL_FOG_END, width * 4 / 5)
             glEnable(GL_FOG)
@@ -382,7 +368,7 @@ class Terrain(object) :
         # Use fog to make the reflection less perfect
         glFogfv(GL_FOG_COLOR, (ctypes.c_float * 4)(*self.water_color))
         glFogi(GL_FOG_MODE, GL_EXP)
-        glFogf(GL_FOG_DENSITY, 0.02)
+        glFogf(GL_FOG_DENSITY, .1)
         glFogf(GL_FOG_START, 0)
         #glFogf(GL_FOG_END, width * 4 / 5)
         glEnable(GL_FOG)
@@ -406,34 +392,39 @@ class Terrain(object) :
         # Draw underwater terrain, except where masked by reflection
         # Use dense fog for underwater effect
         glFogi(GL_FOG_MODE, GL_EXP)
-        glFogf(GL_FOG_DENSITY, 0.4)
+        # if camera is under water increase fog density
+        if cam_height < self.water_line :
+            glFogf(GL_FOG_DENSITY, 0.7)
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP)
         glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
         glStencilFunc(GL_EQUAL, 0, -1)
         self.drawHeightGrid()
+        glFogf(GL_FOG_DENSITY, 0)
         glDisable(GL_CLIP_PLANE0)
         glPopAttrib()
         self.drawSeaLevel()
         glPopAttrib()
 
-    def setSeaMaterial(sefl) :
-        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.34, .34, .0, 1))
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.3, .3, .2, 1))
-        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(0.6, 0.6, 0.6, 1))
+    def setSeaMaterial(self) :
+        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.7, .7, .8, 1))
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.7, .7, .8, 1))
+        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(1, 1, 1, 1))
         #glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(1.0, 1, 1))
         glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 105)
 
-    def drawSeaLevel( self ) :
-        self.setSeaMaterial()
         glEnable(GL_BLEND);
         glDisable(GL_CULL_FACE)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glActiveTexture( GL_TEXTURE0 )
         glBindTexture( GL_TEXTURE_2D, self.sea_tex.id)
+        glColor4f(.1,.3,0.6, 0.7)
 
+
+    def drawSeaLevel( self ) :
+        self.setSeaMaterial()
         
         glBegin(GL_TRIANGLES)    
-        glColor4f(0.1,0.6,.6,0.8)
+        #glColor4f(0.4,0.6,.6,0.7)
 
         #glColor4f(.1,.3,0.6, 0.9)
         #glColor4f(.0,.0,0.0, 0.4)
@@ -507,3 +498,68 @@ class Terrain(object) :
         if not floating : return h
         if h < self.water_line: return self.water_line
         return h
+
+
+
+'''
+    x
+        glEnable(GL_LIGHTING);
+        glEnable(GL_LIGHT0);
+        glEnable(GL_NORMALIZE);
+        # Light model parameters:
+        # -------------------------------------------
+
+        lmKa = vec(0.0, 0.0, 0.0, 0.0 )
+        glLightModelfv(GL_LIGHT_MODEL_AMBIENT, lmKa);
+
+        glLightModelf(GL_LIGHT_MODEL_LOCAL_VIEWER, 1.0);
+        glLightModelf(GL_LIGHT_MODEL_TWO_SIDE, 0.0);
+
+        # -------------------------------------------
+        # Spotlight Attenuation
+
+        spot_direction = vec(1.0, -1.0, 0.0 )
+        spot_exponent = 30;
+        spot_cutoff = 180;
+
+        glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, spot_direction);
+        glLighti(GL_LIGHT0, GL_SPOT_EXPONENT, spot_exponent);
+        glLighti(GL_LIGHT0, GL_SPOT_CUTOFF, spot_cutoff);
+
+        Kc = 1.0;
+        Kl = 0.0;
+        Kq = 0.0;
+
+        glLightf(GL_LIGHT0, GL_CONSTANT_ATTENUATION,Kc);
+        glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION, Kl);
+        glLightf(GL_LIGHT0, GL_QUADRATIC_ATTENUATION, Kq);
+
+
+        # ------------------------------------------- 
+        # Lighting parameters:
+
+        light_pos = vec(16.0, 10.0, 16.0, 1.0)
+        light_Ka  = vec(1.0, 0.5, 0.5, 1.0)
+        light_Kd  = vec(1.0, 0.1, 0.1, 1.0)
+        light_Ks  = vec(1.0, 1.0, 1.0, 1.0)
+
+        glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
+        glLightfv(GL_LIGHT0, GL_AMBIENT, light_Ka);
+        glLightfv(GL_LIGHT0, GL_DIFFUSE, light_Kd);
+        glLightfv(GL_LIGHT0, GL_SPECULAR, light_Ks);
+
+        # -------------------------------------------
+        # Material parameters:
+
+        material_Ka = vec(0.5, 0.0, 0.0, 1.0)
+        material_Kd = vec(0.4, 0.4, 0.5, 1.0)
+        material_Ks = vec(0.8, 0.8, 0.0, 1.0)
+        material_Ke = vec(0.1, 0.0, 0.0, 0.0)
+        material_Se = 20.0;
+
+        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, material_Ka);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, material_Kd);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, material_Ks);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, material_Ke);
+        glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, material_Se);
+'''

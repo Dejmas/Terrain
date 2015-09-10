@@ -12,6 +12,12 @@ class Shader:
         self.createShader(vs, GL_VERTEX_SHADER)
         self.createShader(fs, GL_FRAGMENT_SHADER)
 
+        glLinkProgram(self.programId)
+        if self.programErrorLog(GL_LINK_STATUS): return
+        
+        glValidateProgram(self.programId);
+        if self.programErrorLog(GL_VALIDATE_STATUS): return
+        
     def createShader(self, code, shaderType):
         lenght = len(code)
         if not lenght: return
@@ -19,20 +25,12 @@ class Shader:
         code = (c_char_p * lenght)(*code)
         self.shaderType = shaderType
         self.shaderId = glCreateShader(shaderType)
-        self.programId = glCreateProgram()
         # POINTER(c_char_p)
         glShaderSource(self.shaderId, lenght, cast(pointer(code), POINTER(POINTER(c_char))), None)
         
         glCompileShader(self.shaderId)
         if self.shaderErrorLog(GL_COMPILE_STATUS): return
         glAttachShader(self.programId, self.shaderId)
-
-        glLinkProgram(self.programId)
-        if self.programErrorLog(GL_LINK_STATUS): return
-
-        glValidateProgram(self.programId);
-        if self.programErrorLog(GL_VALIDATE_STATUS): return
-
 
 
     def shaderErrorLog(self, order):
@@ -106,7 +104,7 @@ class Shader:
 
 vshader = '''attribute vec2 aVertexPosition;
         void main() {
-            gl_Position = vec4(0,0, 0, 1);
+            gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
         }'''
     
 fshader = '''//#extension GL_EXT_GPU_SHADER4 : require

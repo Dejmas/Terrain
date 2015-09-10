@@ -114,6 +114,8 @@ class Window(pyglet.window.Window):
         # Current (x, y, z) position in the world, specified with floats. Note
         # that, perhaps unlike in class, the y-axis is the vertical axis.
         self.position = (12, 8, 12)
+        self.press = {}
+        self.press["light"] = 0
 
         # First element is rotation of the player in the x-z plane (ground
         # plane) measured from the z-axis down. The second is the rotation
@@ -290,21 +292,19 @@ class Window(pyglet.window.Window):
 
 
         # set lightning source
-        self.spin += 0.6
+        self.spin += 1 #self.press["light"]
         self.spin %= 360
         glPushMatrix();
-        x = lambda s : sin(radians(s))*6
-        z = lambda s : cos(radians(s))*6
-        
+        x = lambda s : sin(radians(s))*30
+        z = lambda s : cos(radians(s))*30
+        self.t.lightPos = ( x(self.spin), 15., z(self.spin) )
         #self.shader.uniform3fv("lightPos[0]", *[x(self.spin), 15, z(self.spin)])
         #self.shader.uniform3fv("lightPos[1]", *[x(self.spin+120), 15, z(self.spin+120)])
         #self.shader.uniform3fv("lightPos[2]", *[x(self.spin+240), 15, z(self.spin+240)])
-        glTranslatef(0, 15, 0)
+        glTranslatef(0, 30, 0)
         glRotated(self.spin, 0.0, 1.0, 0.0);
-        def vec(*args):
-            return (GLfloat * len(args))(*args)
 
-        glTranslated (0.0, 0.0, 6.0);
+        glTranslated (0.0, 0.0, 20.0);
         glLightfv(GL_LIGHT0, GL_POSITION, vec(0, 0, 0, 1))
         glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, -1, 0))
         glDisable (GL_LIGHTING);
@@ -390,9 +390,7 @@ class Window(pyglet.window.Window):
             x, y = x + dx * m, y + dy * m
             y = max(-90, min(90, y))
             self.rotation = (x, y)
-    #@window.event
-    def vec(*args):
-        return (GLfloat * len(args))(*args)
+
     def on_key_press( self, symbol, modifier ):
         global piece, bottom
 
@@ -427,10 +425,12 @@ class Window(pyglet.window.Window):
             exit(0)
         elif symbol == key.ESCAPE:
             self.set_exclusive_mouse(False)
+
         elif symbol == key.O :
-            self.color_coef += .1
+            self.press["light"] = 1
         elif symbol == key.P :
-            self.color_coef -= .1
+            self.press["light"] = -1
+
 
     def on_key_release(self, symbol, modifiers):
         """ Called when the player releases a key. See pyglet docs for key
@@ -458,6 +458,12 @@ class Window(pyglet.window.Window):
         elif symbol == key.RIGHT :
             self.kostka.input[1] = False
 
+        elif symbol == key.O :
+            self.press["light"] = 0
+        elif symbol == key.P :
+            self.press["light"] = 0
+
+
 def setup():
     """ Basic OpenGL configuration.
 
@@ -479,9 +485,9 @@ def setup():
     #glLightfv(GL_LIGHT0, GL_SPECULAR, vec(1, 1, 1, 0))
     #glLightfv(GL_LIGHT0, GL_DIFFUSE, vec(1, 1, 1, 0))
     pos0 = vec(0.0,0.0,0.0,1.0)
-    diffuse0 = vec(1.0,1.0,1.0,1.0)
-    ambient0 = vec(1.0,1.0,1.0,1.0)
-    specular0 = vec(1.0,1.0,1.0,1.0)
+    diffuse0 = vec(.25,.25,.25,.33)
+    ambient0 = vec(.33,.33,.33,.33)
+    specular0 = vec(.33,.33,.33,.33)
     glLightf(GL_LIGHT0, GL_SPOT_CUTOFF, 75)
     glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION, 0.00300);
     glLightfv(GL_LIGHT0, GL_POSITION, pos0)
