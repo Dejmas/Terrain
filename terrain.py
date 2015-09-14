@@ -32,10 +32,14 @@ class Terrain(object) :
         '''
     def __init__(self, a=33, water_line=1.5, generate=True) :
         self.a = a
-        self.water_line = water_line
+        self.dlists = {}
+        self.water_line = water_line - 0.15
         self.water_color = (.1,.3,0.6,1)
         self.lightPos = (0, 0, 0)
         self.lightRotation = 0
+        self.waveTime = 0
+        self.waveWidth = 0.7
+        self.waveHeight = 0.25
         if generate :
             self.generateHeightMap(a, a)
             self.saveHeightMap('hm_last')
@@ -177,10 +181,14 @@ class Terrain(object) :
         self.recursion( (ex+sx)/2, (ey+sy)/2, ex, ey, depth+1 )
 
     def loadShader(self):
-        self.shader = None
+        self.gridShader = None
         with open("shaders/heightGrid.vs") as vsf:
             with  open("shaders/heightGrid.fs") as fsf:
-                self.shader = Shader(vs=vsf.read(), fs=fsf.read())
+                self.gridShader = Shader(vs=vsf.read(), fs=fsf.read())
+
+        with open("shaders/water.vs") as vsf:
+            with  open("shaders/water.fs") as fsf:
+                self.waterShader = Shader(vs=vsf.read(), fs=fsf.read())
 
     def loadTexture( self ):
         textureSurface = image.load('data/multicolor512.png')
@@ -299,7 +307,7 @@ class Terrain(object) :
         glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(0.6, 0.6, 0.6, 1))
         glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(0.5, 1, 1))
         glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 45)
-        glColor4f(0.1,0.6,.6,0.4)
+        #glColor4f(0.1,0.6,.6,0.4)
         glEnable(GL_TEXTURE_2D)
         glActiveTexture(GL_TEXTURE0); 
         glBindTexture(GL_TEXTURE_2D, self.text0.id); 
@@ -325,21 +333,26 @@ class Terrain(object) :
         glPopMatrix();
 
         if SHADER:
-            self.shader.uniformi("blendTexture", 0) 
-            self.shader.uniformi("text1", 1)
-            self.shader.uniformi("text2", 2)
-            self.shader.uniformi("text3", 3)
-            #self.shader.uniformf("lightPos[0]", *lightPos0Eye[:3])
-            #self.shader.uniformf("density", 1 )
+            self.gridShader.uniformi("blendTexture", 0) 
+            self.gridShader.uniformi("text1", 1)
+            self.gridShader.uniformi("text2", 2)
+            self.gridShader.uniformi("text3", 3)
+            #self.gridShader.uniformf("lightPos[0]", *lightPos0Eye[:3])
+            #self.gridShader.uniformf("density", 1 )
 
     def drawHeightGrid( self ) :
-        if SHADER: self.shader.Use()
+        if SHADER: self.gridShader.Use()
         self.setMaterial()
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST )
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR )
+        if not 'terrain' in self.dlists :
+            self.dlists['terrain'] = glGenLists(1)
+            glNewList(self.dlists['terrain'], GL_COMPILE )
+            self.vertex_list . draw( pyglet.gl.GL_TRIANGLES )
+            glEndList()
 
-        self.vertex_list . draw( pyglet.gl.GL_TRIANGLES )
-        if SHADER: self.shader.Unuse()
+        glCallList(self.dlists['terrain'])
+        if SHADER: self.gridShader.Unuse()
         glDisable(GL_TEXTURE_2D)
 
     def draw( self, cam_height ):
@@ -347,10 +360,7 @@ class Terrain(object) :
         # Draw the terrain above water
         if cam_height < self.water_line :
             glFogfv(GL_FOG_COLOR, vec(*self.water_color))
-            glFogi(GL_FOG_MODE, GL_EXP)
             glFogf(GL_FOG_DENSITY, .1)
-            glFogf(GL_FOG_START, 0)
-            #glFogf(GL_FOG_END, width * 4 / 5)
             glEnable(GL_FOG)
         glPushAttrib(GL_STENCIL_BUFFER_BIT | GL_TRANSFORM_BIT | GL_CURRENT_BIT)
         glColor3f(.3, .59, .11)
@@ -359,39 +369,35 @@ class Terrain(object) :
         self.drawHeightGrid()
         glDisable(GL_FOG)
         
-        # Draw the reflection and create a stencil mask
-        glPushAttrib(GL_FOG_BIT)
-        glPushAttrib(GL_LIGHTING_BIT)
-        glEnable(GL_STENCIL_TEST)
-        glStencilFunc(GL_ALWAYS, 1, 1)
-        glStencilOp(GL_KEEP, GL_INCR, GL_INCR)
-        # Use fog to make the reflection less perfect
-        glFogfv(GL_FOG_COLOR, (ctypes.c_float * 4)(*self.water_color))
-        glFogi(GL_FOG_MODE, GL_EXP)
-        glFogf(GL_FOG_DENSITY, .1)
-        glFogf(GL_FOG_START, 0)
-        #glFogf(GL_FOG_END, width * 4 / 5)
-        glEnable(GL_FOG)
-        glPushMatrix()
-        glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
-        glLightfv(GL_LIGHT0, GL_POSITION, vec(0, -100, 0, 0))
-        glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, 1, 0, 0))
-        glTranslatef(0, self.water_line * 2, 0)
-        glScalef(1, -1, 1)
-        glColor3f(.3, .59, .71)
-        #glColor4f(0.26, 0.32, .6, 1)
+        # # Draw the reflection and create a stencil mask
+        # glPushAttrib(GL_FOG_BIT)
+        # glPushAttrib(GL_LIGHTING_BIT)
+        # glEnable(GL_STENCIL_TEST)
+        # glStencilFunc(GL_ALWAYS, 1, 1)
+        # glStencilOp(GL_KEEP, GL_INCR, GL_INCR)
+        # # Use fog to make the reflection less perfect
+        # glFogfv(GL_FOG_COLOR, (ctypes.c_float * 4)(*self.water_color))
+        # glFogf(GL_FOG_DENSITY, .1)
+        # glEnable(GL_FOG)
+        # glPushMatrix()
+        # glClipPlane(GL_CLIP_PLANE0, (ctypes.c_double * 4)(0, -1, 0, self.water_line))
+        # glLightfv(GL_LIGHT0, GL_POSITION, vec(0, -100, 0, 0))
+        # glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, 1, 0, 0))
+        # glTranslatef(0, self.water_line * 2, 0)
+        # glScalef(1, -1, 1)
+        # glColor3f(.3, .59, .71)
+        # #glColor4f(0.26, 0.32, .6, 1)
         
         #  
-        glFrontFace(GL_CW) 
-        if cam_height > self.water_line :
-            self.drawHeightGrid()
-        glFrontFace(GL_CCW)
-        glPopMatrix()
-        glPopAttrib()
+        # glFrontFace(GL_CW) 
+        # if cam_height > self.water_line :
+        #     self.drawHeightGrid()
+        # glFrontFace(GL_CCW)
+        # glPopMatrix()
+        # glPopAttrib()
 
         # Draw underwater terrain, except where masked by reflection
         # Use dense fog for underwater effect
-        glFogi(GL_FOG_MODE, GL_EXP)
         # if camera is under water increase fog density
         if cam_height < self.water_line :
             glFogf(GL_FOG_DENSITY, 0.7)
@@ -403,62 +409,76 @@ class Terrain(object) :
         glDisable(GL_CLIP_PLANE0)
         glPopAttrib()
         self.drawSeaLevel()
-        glPopAttrib()
+        #glPopAttrib()
 
     def setSeaMaterial(self) :
+        glClearColor(0, 0, .0, 1)
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE)
+        #glDepthFunc(GL_LEQUAL);
+        glShadeModel(GL_SMOOTH);
         glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, vec(.7, .7, .8, 1))
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, vec(.7, .7, .8, 1))
         glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, vec(1, 1, 1, 1))
         #glMaterialfv(GL_FRONT, GL_COLOR_INDEXES, vec(1.0, 1, 1))
         glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 105)
 
-        glEnable(GL_BLEND);
         glDisable(GL_CULL_FACE)
+        glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glActiveTexture( GL_TEXTURE0 )
         glBindTexture( GL_TEXTURE_2D, self.sea_tex.id)
         glColor4f(.1,.3,0.6, 0.7)
-
+        if SHADER :
+            self.waveTime += 0.025
+            self.waterShader.uniformi("tex0", 0 )
+            self.waterShader.uniformf("waveTime", self.waveTime )
+            self.waterShader.uniformf("waveWidth", self.waveWidth )
+            self.waterShader.uniformf("waveHeight", self.waveHeight )
 
     def drawSeaLevel( self ) :
+        if SHADER : self.waterShader.Use()
         self.setSeaMaterial()
-        
-        glBegin(GL_TRIANGLES)    
-        #glColor4f(0.4,0.6,.6,0.7)
+        if not 'water' in self.dlists:
+            self.dlists['water'] = glGenLists(1)
+            glNewList(self.dlists['water'], GL_COMPILE)
+            glBegin(GL_TRIANGLES)    
+            s = 1./33
+            a = self.a
+            y = self.water_line+self.waveHeight
+            s = 1
 
-        #glColor4f(.1,.3,0.6, 0.9)
-        #glColor4f(.0,.0,0.0, 0.4)
-        a = self.a
-        y = self.water_line
-        s = 2
-        for z in xrange( 0, a, s ) : 
-            for x in xrange( 0, a, s ) :
+            for z in xrange( -a, a, s ) : 
+                for x in xrange( -a, a, s ) :
 
-                glNormal3f(0,1,0)
-                glTexCoord2i(1,1)
-                glVertex3f(x + s, y, z + s) 
-                glNormal3f(0,1,0)
-                glTexCoord2i(0,0)
-                glVertex3f(x + 0, y, z + 0)
-                glNormal3f(0,1,0)
-                glTexCoord2i(0,1)
-                glVertex3f(x + 0, y, z + s) 
+                    glNormal3f(0,1,0)
+                    glTexCoord2i(1, 1)
+                    glVertex3f(x +1, y, z +1) 
+                    glNormal3f(0,1,0)
+                    glTexCoord2i(0, 0)
+                    glVertex3f(x + 0, y, z + 0)
+                    glNormal3f(0,1,0)
+                    glTexCoord2i(0, 1)
+                    glVertex3f(x + 0, y, z +1) 
 
-                glNormal3f(0,1,0)
-                glTexCoord2i(0,0)
-                glVertex3f(x + 0, y, z + 0)  
-                glNormal3f(0,1,0)
-                glTexCoord2i(1,1)
-                glVertex3f(x + s, y, z + s)
-                glNormal3f(0,1,0)
-                glTexCoord2i(1,0)
-                glVertex3f(x + s, y, z + 0)    
+                    glNormal3f(0,1,0)
+                    glTexCoord2i(0, 0)
+                    glVertex3f(x + 0, y, z + 0)  
+                    glNormal3f(0,1,0)
+                    glTexCoord2i(1, 1)
+                    glVertex3f(x +1, y, z +1)
+                    glNormal3f(0,1,0)
+                    glTexCoord2i(1, 0)
+                    glVertex3f(x +1, y, z + 0)    
 
-        glEnd()
+            glEnd()
+            glEndList()
+        glCallList(self.dlists['water'])
+        if SHADER : self.waterShader.Unuse()
         glDisable(GL_BLEND);
         glEnable(GL_CULL_FACE)
         
-
     def height( self, x, z ):
         from math import floor, ceil
         a = self.a

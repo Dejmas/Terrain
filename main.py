@@ -14,16 +14,12 @@ glutInit()
 WIREFRAME=False
 '''
 TODOS:
-        - blending texture system if possible
-        - compile meshes
-        - optimaize if is slow
-        - more files
+        - optimaize
+        - particle effects
         - sky
         - ship
         - car
         - person
-        - particle effects
-
 '''
 
 # Define a simple function to create ctypes arrays of floats:
@@ -110,6 +106,8 @@ class Window(pyglet.window.Window):
         super(Window, self).__init__(*args, **kwargs)
         pyglet.clock.schedule_interval(self.update, 1./60)
         self.strafe = [0, 0]
+        def fps(dt): print 'FPS is %f' % pyglet.clock.get_fps()
+        pyglet.clock.schedule_interval(fps, 2)
 
         # Current (x, y, z) position in the world, specified with floats. Note
         # that, perhaps unlike in class, the y-axis is the vertical axis.
@@ -132,16 +130,6 @@ class Window(pyglet.window.Window):
         #self.skybox = SkyBox.fromDir("../example/texture/bluesky", "bluesky")
         #self.skybox = SkyBox.fromDir("../example/texture/lake2", "jajlake2")
         self.kostka = Kostka(self.t) 
-        self.dlists = {}
-        self.dlists['terrain'] = glGenLists(1)
-        glNewList(self.dlists['terrain'], GL_COMPILE)
-        self.t.draw(5)
-        glEndList()
-        
-        # with open("shader.vs") as vsf:
-        #     with  open("shader.fs") as fsf:
-        #         self.shader = Shader(vs=vsf.read(), fs=fsf.read())
-        #         self.shader.Use()
 
     def set_exclusive_mouse(self, exclusive):
         """ If `exclusive` is True, the game will capture the mouse, if False
@@ -235,18 +223,13 @@ class Window(pyglet.window.Window):
         self.water_line = 1.5
         self.water_color = (0.3,0.3,1,1)
         
-        #self.shader.Use()
         self.set_3d()
         glTranslatef(-16, 0, -16)
         
         # kostka
-        #self.shader.uniformf("uScale", 1.35)
-        #self.shader.uniformf("uOffset", *[-.5, .5])
         self.kostka.draw()
 
-        #glCallList(self.dlists['terrain'])
         self.t.draw(self.position[1])
-        #self.shader.Unuse()
 
         glPopMatrix() # set_3d camera transf
         self.set_2d()
@@ -292,7 +275,7 @@ class Window(pyglet.window.Window):
 
 
         # set lightning source
-        self.spin += 1 #self.press["light"]
+        self.spin += self.press["light"]
         self.spin %= 360
         glPushMatrix();
         x = lambda s : sin(radians(s))*30
@@ -301,10 +284,10 @@ class Window(pyglet.window.Window):
         #self.shader.uniform3fv("lightPos[0]", *[x(self.spin), 15, z(self.spin)])
         #self.shader.uniform3fv("lightPos[1]", *[x(self.spin+120), 15, z(self.spin+120)])
         #self.shader.uniform3fv("lightPos[2]", *[x(self.spin+240), 15, z(self.spin+240)])
-        glTranslatef(0, 30, 0)
-        glRotated(self.spin, 0.0, 1.0, 0.0);
+        glTranslatef(0, 25, 0)
+        glRotated(self.spin, 1.0, 0.0, 0.0);
 
-        glTranslated (0.0, 0.0, 20.0);
+        glTranslated (0.0, 0.0, 30.0);
         glLightfv(GL_LIGHT0, GL_POSITION, vec(0, 0, 0, 1))
         glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, vec(0, -1, 0))
         glDisable (GL_LIGHTING);
@@ -312,43 +295,6 @@ class Window(pyglet.window.Window):
         glutWireCube (2.0);
         glEnable (GL_LIGHTING);
         glPopMatrix()
-   
-    def drawChessDesk( self ) :
-        glBegin(GL_TRIANGLES)    
-
-        for z in xrange( -30, 30, 1 ) : 
-            for x in xrange( -30, 30, 2 ) :
-                if z % 2 == 0 :
-                    glColor3f(0, 0.5, 0)
-                else :
-                    glColor3f(.1,.1, .1)
-
-                glNormal3f(0,1,0)
-                glVertex3f(x + 1, -5, 1 + z) 
-                glVertex3f(x +  0, -5,  0 + z)
-                glVertex3f(x +  0, -5, 1 + z) 
-
-                glNormal3f(0,1,0)
-                glVertex3f(x +  0, -5,  0 + z)  
-                glVertex3f(x + 1, -5, 1 + z)
-                glVertex3f(x + 1, -5,  0 + z) 
-
-                if z % 2 != 0:
-                    glColor3f(0, 0.5, 0)
-                else :
-                    glColor3f(.1,.1, .1)
-
-                glNormal3f(0,1,0)
-                glVertex3f(x + 2, -5, 1 + z) 
-                glVertex3f(x + 1, -5,  0 + z)
-                glVertex3f(x + 1, -5, 1 + z) 
-
-                glNormal3f(0,1,0)
-                glVertex3f(x + 1, -5,  0 + z)  
-                glVertex3f(x + 2, -5, 1 + z)
-                glVertex3f(x + 2, -5,  0 + z)    
-
-        glEnd()
 
     def on_mouse_press(self, x, y, button, modifiers):
         """ Called when a mouse button is pressed. See pyglet docs for button
