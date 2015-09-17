@@ -35,9 +35,30 @@ def quad( x, y, color, size=50 ):
         ('v2f', coords), 
         ('c3B', colors) );
     return vertex_list
-
+def cube():
+    v = ( 0,0,0, 1,0,0, 1,0,1, 0,0,1,
+          0,1,0, 1,1,0, 1,1,1, 0,1,1,)
+    t = ( 0,0, 1,0, 1,1, 0,1, 
+          0,1, 1,1, 1,0, 0,0,)
+    n = ( -1,-1,-1, 1,-1,-1, 1,-1,1, -1,-1,1,
+          -1,1,-1,  1,1,-1,  1,1,1,  1,1,-1,)
+        
+    i = ( 0,1,2, 0,2,3, # bottom
+          4,6,5, 4,7,6, # top
+          0,5,1, 0,4,5, # front 
+          3,2,6, 3,6,7, # back
+          1,5,6, 6,2,1,
+          7,4,3, 3,4,0,
+          )
+    return pyglet.graphics.vertex_list_indexed( 
+            8,
+            i,
+            ('v3f', v), 
+            ('t2f', t),
+            ('n3f', n), );
 
 class Kostka:
+    SHADER = True
     def __init__(self, terrain):
         self.position   = [25, 0, 25]
         self._direction = [ 1, 0, 0 ]
@@ -45,6 +66,22 @@ class Kostka:
         self.t          =   terrain
         self.yrot       =   90.
         self.input      = [ False, False ]
+
+        textureSurface = image.load('data/rockbump.jpg')
+        self.text0 = textureSurface.get_mipmapped_texture()
+
+        textureSurface = image.load('data/rockbump.tga')
+        self.nmap = textureSurface.get_mipmapped_texture()
+
+        self.model = cube();
+
+        self.loadShader()
+    
+    def loadShader(self):
+        self.gridShader = None
+        with open("shaders/cube.vs") as vsf:
+            with  open("shaders/cube.fs") as fsf:
+                self.cubeShader = Shader(vs=vsf.read(), fs=fsf.read())
 
     def _calcYrot(self,dt):
         if self.input[0] :
@@ -64,16 +101,27 @@ class Kostka:
         dx = self._direction[0] * self.speed * dt
         dz = self._direction[2] * self.speed * dt
         self.position = x+dx, y, z+dz
-
-    def draw(self):
+    def setMaterial(self):
         glDisable(GL_CLIP_PLANE0)
-        glColor3f(0,0,1)
+        glEnable(GL_TEXTURE_2D)
+        glActiveTexture(GL_TEXTURE0); 
+        glBindTexture(GL_TEXTURE_2D, self.text0.id); 
+        if Kostka.SHADER :
+            glActiveTexture(GL_TEXTURE1); 
+            glBindTexture(GL_TEXTURE_2D, self.nmap.id);
+            self.cubeShader.uniformi("tex0", 0 )
+            self.cubeShader.uniformi("nmap", 1 )
+
+        #glDisable(GL_BLEND)
+        
+    def draw(self):
         x, y, z = self.position
         y = self.t.Height(x, z, floating=True)
         from math import floor
         xf = int( floor(x) )
         zf = int( floor(z) )
         
+        glColor3f(0,0,1)
         sizes = (GLfloat*10)()
         step = (GLfloat*1)()
         glGetFloatv(GL_POINT_SIZE_RANGE,sizes);
@@ -91,11 +139,14 @@ class Kostka:
             glVertex3f(xf+1, self.t.hm[zf+1][xf+1], zf+1)
 
             glEnd()
-
+        #glfwOpenWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
         # cube
+        if Kostka.SHADER : self.cubeShader.Use()
+        self.setMaterial()
         glTranslatef(x, y, z)
-        glColor3f(1,0,0)
-        glutSolidCube(0.1)
+        glColor3f(1,1,1)
+        self.model.draw(GL_TRIANGLES)
+        if Kostka.SHADER : self.cubeShader.Unuse()
         glTranslatef(-x, -y, -z)
 
 
@@ -227,9 +278,9 @@ class Window(pyglet.window.Window):
         glTranslatef(-16, 0, -16)
         
         # kostka
-        self.kostka.draw()
 
         self.t.draw(self.position[1])
+        self.kostka.draw()
 
         glPopMatrix() # set_3d camera transf
         self.set_2d()

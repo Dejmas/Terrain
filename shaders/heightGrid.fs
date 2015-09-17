@@ -24,11 +24,11 @@ void main (void)
 	vec4 amb = gl_FrontLightProduct[0].ambient;
 
 	//calculate Diffuse Term:
-	vec4 diff = sature( gl_FrontLightProduct[0].diffuse * max(dot(N,L), 0.0) );
+	vec4 diff = sature( gl_FrontLightProduct[0].diffuse * clamp(dot(N,L), 0.0, 1.0) );
 
 	// calculate Specular Term:
 	vec4 spec = gl_FrontLightProduct[0].specular 
-	                  * pow(max(dot(R,E),0.0),0.3*gl_FrontMaterial.shininess);
+	                  * pow(clamp(dot(R,E),0.0, 1.0),0.3*gl_FrontMaterial.shininess);
 
 	// blend texture
 	vec2 btcoord = gl_TexCoord[0].xy;
